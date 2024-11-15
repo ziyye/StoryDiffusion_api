@@ -1,5 +1,5 @@
 from this import d
-
+import gradio as gr
 import numpy as np
 import torch
 import gc
@@ -76,6 +76,16 @@ def setup_seed(seed):
     random.seed(seed)
     torch.backends.cudnn.deterministic = True
 
+
+def set_text_unfinished():
+    return gr.update(
+        visible=True,
+        value="<h3>(Not Finished) Generating ···  The intermediate results will be shown.</h3>",
+    )
+
+
+def set_text_finished():
+    return gr.update(visible=True, value="<h3>Generation Finished</h3>")
 
 
 #################################################
@@ -483,17 +493,61 @@ def save_results(unet, img_list):
 
     for idx, img in enumerate(img_list):
         file_path = os.path.join(folder_name, f"image_{idx}.png")  # 图片文件名
-        if idx == 0:
-            print(f"save image to {file_path}")
         img.save(file_path)
     global character_dict
 
     # save the characters features offline
-    for char in character_dict:  # {'[Kitty]': 'a girl, wearing white shirt, black skirt, black tie, yellow hair'}
-        description = character_dict[char]
-        save_single_character_weights(unet,char,description,os.path.join(weight_folder_name, f'{char}.pt'))
+    # for char in character_dict:
+    #     description = character_dict[char]
+    #     save_single_character_weights(unet,char,description,os.path.join(weight_folder_name, f'{char}.pt'))
 
 
+#################################################
+title = r"""
+<h1 align="center">StoryDiffusion: Consistent Self-Attention for Long-Range Image and Video Generation</h1>
+"""
+
+description = r"""
+<b>Official 🤗 Gradio demo</b> for <a href='https://github.com/HVision-NKU/StoryDiffusion' target='_blank'><b>StoryDiffusion: Consistent Self-Attention for Long-Range Image and Video Generation</b></a>.<br>
+❗️❗️❗️[<b>Important</b>] Personalization steps:<br>
+1️⃣ Enter a Textual Description for Character, if you add the Ref-Image, making sure to <b>follow the class word</b> you want to customize with the <b>trigger word</b>: `img`, such as: `man img` or `woman img` or `girl img`.<br>
+2️⃣ Enter the prompt array, each line corrsponds to one generated image.<br>
+3️⃣ Choose your preferred style template.<br>
+4️⃣ Click the <b>Submit</b> button to start customizing.
+"""
+
+article = r"""
+
+If StoryDiffusion is helpful, please help to ⭐ the <a href='https://github.com/HVision-NKU/StoryDiffusion' target='_blank'>Github Repo</a>. Thanks! 
+[![GitHub Stars](https://img.shields.io/github/stars/HVision-NKU/StoryDiffusion?style=social)](https://github.com/HVision-NKU/StoryDiffusion)
+---
+📝 **Citation**
+<br>
+If our work is useful for your research, please consider citing:
+
+```bibtex
+@article{Zhou2024storydiffusion,
+  title={StoryDiffusion: Consistent Self-Attention for Long-Range Image and Video Generation},
+  author={Zhou, Yupeng and Zhou, Daquan and Cheng, Ming-Ming and Feng, Jiashi and Hou, Qibin},
+  year={2024}
+}
+```
+📋 **License**
+<br>
+Apache-2.0 LICENSE. 
+
+📧 **Contact**
+<br>
+If you have any questions, please feel free to reach me out at <b>ypzhousdu@gmail.com</b>.
+"""
+version = r"""
+<h3 align="center">StoryDiffusion Version 0.02 (test version)</h3>
+
+<h5 >1. Support image ref image. (Cartoon Ref image is not support now)</h5>
+<h5 >2. Support Typesetting Style and Captioning.(By default, the prompt is used as the caption for each image. If you need to change the caption, add a # at the end of each line. Only the part after the # will be added as a caption to the image.)</h5>
+<h5 >3. [NC]symbol (The [NC] symbol is used as a flag to indicate that no characters should be present in the generated scene images. If you want do that, prepend the "[NC]" at the beginning of the line. For example, to generate a scene of falling leaves without any character, write: "[NC] The leaves are falling.")</h5>
+<h5 align="center">Tips: </h4>
+"""
 #################################################
 global attn_count, total_count, id_length, total_length, cur_step, cur_model_type
 global write
@@ -519,35 +573,24 @@ global pipe
 global sd_model_path
 pipe = None
 
-use_kolors = False
-if not use_kolors:
-    sd_model_path = models_dict["Unstable"]["path"]  # "SG161222/RealVisXL_V4.0"
-    single_files = models_dict["Unstable"]["single_files"]
-    ### LOAD Stable Diffusion Pipeline
-    if single_files:
-        pipe = StableDiffusionXLPipeline.from_single_file(
-            sd_model_path, torch_dtype=torch.float16
-        )
-    else:
-        pipe = StableDiffusionXLPipeline.from_pretrained(
-            sd_model_path, torch_dtype=torch.float16, use_safetensors=False
-        )
-elif use_kolors:
-    from diffusers import KolorsPipeline
-    pipe = KolorsPipeline.from_pretrained(
-        "Kwai-Kolors/Kolors-diffusers", 
-        torch_dtype=torch.float16, 
-        variant="fp16"
+sd_model_path = models_dict["Unstable"]["path"]  # "SG161222/RealVisXL_V4.0"
+single_files = models_dict["Unstable"]["single_files"]
+### LOAD Stable Diffusion Pipeline
+if single_files:
+    pipe = StableDiffusionXLPipeline.from_single_file(
+        sd_model_path, torch_dtype=torch.float16
     )
-
-
+else:
+    pipe = StableDiffusionXLPipeline.from_pretrained(
+        sd_model_path, torch_dtype=torch.float16, use_safetensors=False
+    )
 pipe = pipe.to(device)
 pipe.enable_freeu(s1=0.6, s2=0.4, b1=1.1, b2=1.2)
 # pipe.scheduler = DDIMScheduler.from_config(pipe.scheduler.config)
 pipe.scheduler.set_timesteps(50)
 pipe.enable_vae_slicing()
-# if device != "mps":
-#     pipe.enable_model_cpu_offload()
+if device != "mps":
+    pipe.enable_model_cpu_offload()
 unet = pipe.unet
 cur_model_type = "Unstable" + "-" + "original"
 ### Insert PairedAttention
@@ -583,6 +626,31 @@ mask1024, mask4096 = cal_attn_mask_xl(
     dtype=torch.float16,
 )
 
+######### Gradio Fuction #############
+
+
+def swap_to_gallery(images):
+    return (
+        gr.update(value=images, visible=True),
+        gr.update(visible=True),
+        gr.update(visible=False),
+    )
+
+
+def upload_example_to_gallery(images, prompt, style, negative_prompt):
+    return (
+        gr.update(value=images, visible=True),
+        gr.update(visible=True),
+        gr.update(visible=False),
+    )
+
+
+def remove_back_to_files():
+    return gr.update(visible=False), gr.update(visible=False), gr.update(visible=True)
+
+
+def remove_tips():
+    return gr.update(visible=False)
 
 
 def apply_style_positive(style_name: str, positive: str):
@@ -597,9 +665,26 @@ def apply_style(style_name: str, positives: list, negative: str = ""):
     ], n + " " + negative
 
 
+def change_visiale_by_model_type(_model_type):
+    if _model_type == "Only Using Textual Description":
+        return (
+            gr.update(visible=False),
+            gr.update(visible=False),
+            gr.update(visible=False),
+        )
+    elif _model_type == "Using Ref Images":
+        return (
+            gr.update(visible=True),
+            gr.update(visible=True),
+            gr.update(visible=False),
+        )
+    else:
+        raise ValueError("Invalid model type", _model_type)
+
+
 def load_character_files(character_files: str):
     if character_files == "":
-        raise Exception("Please set a character file!")
+        raise gr.Error("Please set a character file!")
     character_files_arr = character_files.splitlines()
     primarytext = []
     for character_file_name in character_files_arr:
@@ -621,38 +706,39 @@ def load_character_files_on_running(unet, character_files: str):
 
 ######### Image Generation ##############
 def process_generation(
-    _sd_type,
-    _model_type,
-    _upload_images,
-    _num_steps,
-    style_name,
-    _Ip_Adapter_Strength,
-    _style_strength_ratio,
-    guidance_scale,
-    seed_,
-    sa32_,
-    sa64_,
-    id_length_,
-    general_prompt,
-    negative_prompt,
-    prompt_array,
-    G_height,
-    G_width,
-    _comic_type,
-    font_choice,
-    _char_files,
+    _sd_type,  # 'Unstable'
+    _model_type,  # 'Only Using Textual Description'
+    _upload_images,  # ['/tmp/gradio/c5ed188ab294597419591d777a5a3bc71a6c8694d0e11eac1de8e64e712e77c6/1-1.png']
+    _num_steps,  # 35
+    style_name,  # 'Japanese Anime'
+    _Ip_Adapter_Strength,  # 0.5
+    _style_strength_ratio,  # 20
+    guidance_scale,  # 5
+    seed_,  # 0
+    sa32_,  # 0.3
+    sa64_,  # 0.5
+    id_length_,  # 3
+    general_prompt,  # '[Kitty]a girl, wearing white shirt, black skirt, black tie, yellow hair'
+    negative_prompt,  # 'bad anatomy, bad hands, missing fingers, extra fingers, three hands, three legs, bad arms, missing legs, missing arms, poorly drawn face, bad face, fused face, cloned face, three crus, fused feet, fused thigh, extra crus, ugly fingers, horn, cartoon, cg, 3d, unreal, animate, amputation, disconnected limbs'
+    prompt_array,  # '[Kitty]at home #at home, began to go to drawing\n[Kitty]sitting alone on a park bench.\n[Kitty]reading a book on a park bench.\n[NC]A squirrel approaches, peeking over the bench. \n[Kitty]look around in the park. # She looks around and enjoys the beauty of nature.\n[NC]leaf falls from the tree, landing on the sketchbook.\n[Kitty]picks up the leaf, examining its details closely.\n[NC]The brown squirrel appear.\n[Kitty]is very happy # She is very happy to see the squirrel again\n[NC]The brown squirrel takes the cracker and scampers up a tree. # She gives the squirrel cracker'
+    G_height,  # 768
+    G_width,  # 768
+    _comic_type,  # 'Classic Comic Style'
+    font_choice,  # 'Inkfree.ttf'
+    _char_files,  # ''
 ):  # Corrected font_choice usage
-    if len(general_prompt.splitlines()) >= 3:  # limit of characters number
-        raise Exception(
+    # limit of characters number
+    if len(general_prompt.splitlines()) >= 3:
+        raise gr.Error(
             "Support for more than three characters is temporarily unavailable due to VRAM limitations, but this issue will be resolved soon."
         )
     _model_type = "Photomaker" if _model_type == "Using Ref Images" else "original"
     if _model_type == "Photomaker" and "img" not in general_prompt:
-        raise Exception(
+        raise gr.Error(
             'Please add the triger word " img "  behind the class word you want to customize, such as: man img or woman img'
         )
     if _upload_images is None and _model_type != "original":
-        raise Exception(f"Cannot find any input face image!")
+        raise gr.Error(f"Cannot find any input face image!")
     global sa32, sa64, id_length, total_length, attn_procs, unet, cur_model_type
     global write
     global cur_step, attn_count
@@ -713,7 +799,7 @@ def process_generation(
         if "[NC]" in prompt:
             nc_indexs.append(ind)
             if ind < id_length:
-                raise Exception(
+                raise gr.Error(
                     f"The first {id_length} row is id prompts, cannot use [NC]!"
                 )
     prompts = [
@@ -736,7 +822,7 @@ def process_generation(
     if _model_type != "original":
         input_id_images_dict = {}
         if len(_upload_images) != len(character_dict.keys()):
-            raise Exception(
+            raise gr.Error(
                 f"You upload images({len(_upload_images)}) is not equal to the number of characters({len(character_dict.keys())})!"
             )
         for ind, img in enumerate(_upload_images):
@@ -759,7 +845,7 @@ def process_generation(
     results_dict = {}
     global cur_character
     if not load_chars:
-        print("do not load characters")
+        print("load characters success!")
         for character_key in character_dict.keys():
             cur_character = [character_key]
             ref_indexs = ref_indexs_dict[character_key]
@@ -772,12 +858,6 @@ def process_generation(
             cur_positive_prompts, negative_prompt = apply_style(
                 style_name, current_prompts, negative_prompt
             )
-            if use_kolors:
-                if type(cur_positive_prompts) == list and type(negative_prompt) == str:
-                    negative_prompt = [negative_prompt] * len(cur_positive_prompts)
-                elif type(cur_positive_prompts) == str and type(negative_prompt) == list:
-                    negative_prompt = negative_prompt[0]
-            print(f"cur_positive_prompts is {cur_positive_prompts}")
             if _model_type == "original":
                 id_images = pipe(
                     cur_positive_prompts,
@@ -829,18 +909,12 @@ def process_generation(
         print(cur_character, real_prompt)
         setup_seed(seed_)
         if len(cur_character) > 1 and _model_type == "Photomaker":
-            raise Exception(
+            raise gr.Error(
                 "Temporarily Not Support Multiple character in Ref Image Mode!"
             )
         generator = torch.Generator(device=device).manual_seed(seed_)
         cur_step = 0
         real_prompt = apply_style_positive(style_name, real_prompt)
-        if use_kolors:
-            if type(real_prompt) == list and type(negative_prompt) == str:
-                negative_prompt = [negative_prompt] * len(real_prompt)
-            elif type(real_prompt) == str and type(negative_prompt) == list:
-                negative_prompt = negative_prompt[0]
-        print(f"real_prompt is {real_prompt}")
         if _model_type == "original":
             results_dict[real_prompts_ind] = pipe(
                 real_prompt,
@@ -906,66 +980,374 @@ def array2string(arr):
 
 #################################################
 #################################################
+### define the interface
 
-Kitty_pt = '/gpfs/public/vl/wangjiazhi/00_projs/StoryDiffusion/results/20241031-032806/weights/[Kitty].pt'
+with gr.Blocks(css=css) as demo:
+    binary_matrixes = gr.State([])
+    color_layout = gr.State([])
 
-inputs_example = {
-    "_sd_type": 'Unstable',
-    "_model_type": 'Only Using Textual Description',
-    "_upload_images": ['/gpfs/public/vl/wangjiazhi/00_projs/StoryDiffusion/1-1.png'],
-    "_num_steps": 20,
-    "style_name": 'Japanese Anime',
-    "_Ip_Adapter_Strength": 0.5,
-    "_style_strength_ratio": 20,
-    "guidance_scale": 5,
-    "seed_": 1,
-    "sa32_": 0.3,
-    "sa64_": 0.5,
-    "id_length_": 3,
-    "general_prompt": '[Kitty]a girl, wearing white shirt, black skirt, black tie, yellow hair',
-    "negative_prompt": 'bad anatomy, bad hands, missing fingers, extra fingers, three hands, three legs, bad arms, missing legs, missing arms, poorly drawn face, bad face, fused face, cloned face, three crus, fused feet, fused thigh, extra crus, ugly fingers, horn, cartoon, cg, 3d, unreal, animate, amputation, disconnected limbs',
-    # "prompt_array": '[Kitty]at home #at home, began to go to drawing\n[Kitty]sitting alone on a park bench.\n[Kitty]reading a book on a park bench.\n[NC]A squirrel approaches, peeking over the bench. \n[Kitty]look around in the park. # She looks around and enjoys the beauty of nature.\n[NC]leaf falls from the tree, landing on the sketchbook.\n[Kitty]picks up the leaf, examining its details closely.\n[NC]The brown squirrel appear.\n[Kitty]is very happy # She is very happy to see the squirrel again\n[NC]The brown squirrel takes the cracker and scampers up a tree. # She gives the squirrel cracker',
-    "prompt_array": '[Kitty]at home #at home, began to go to drawing\n[Kitty]sitting alone on a park bench.\n[Kitty]reading a book on a park bench.\n[NC]A squirrel approaches, peeking over the bench.',
-    "G_height": 768,
-    "G_width": 768,
-    "_comic_type": 'Classic Comic Style',
-    "font_choice": 'Inkfree.ttf',
-    "_char_files": '',
-}
+    # gr.Markdown(logo)
+    gr.Markdown(title)
+    gr.Markdown(description)
 
-inputs_example = {
-    "_sd_type": 'Unstable',
-    "_model_type": 'Only Using Textual Description',
-    "_upload_images": ['/gpfs/public/vl/wangjiazhi/00_projs/StoryDiffusion/1-1.png'],
-    "_num_steps": 20,
-    "style_name": 'Japanese Anime',
-    "_Ip_Adapter_Strength": 0.5,
-    "_style_strength_ratio": 20,
-    "guidance_scale": 5,
-    "seed_": 1,
-    "sa32_": 0.3,
-    "sa64_": 0.5,
-    "id_length_": 3,
-    "general_prompt": '[Kitty]a girl',
-    "negative_prompt": 'bad anatomy, bad hands, missing fingers, extra fingers, three hands, three legs, bad arms, missing legs, missing arms, poorly drawn face, bad face, fused face, cloned face, three crus, fused feet, fused thigh, extra crus, ugly fingers, horn, cartoon, cg, 3d, unreal, animate, amputation, disconnected limbs',
-    # "prompt_array": '[Kitty]at home #at home, began to go to drawing\n[Kitty]sitting alone on a park bench.\n[Kitty]reading a book on a park bench.\n[NC]A squirrel approaches, peeking over the bench. \n[Kitty]look around in the park. # She looks around and enjoys the beauty of nature.\n[NC]leaf falls from the tree, landing on the sketchbook.\n[Kitty]picks up the leaf, examining its details closely.\n[NC]The brown squirrel appear.\n[Kitty]is very happy # She is very happy to see the squirrel again\n[NC]The brown squirrel takes the cracker and scampers up a tree. # She gives the squirrel cracker',
-    "prompt_array": '[Kitty]running on a beach\n[Kitty]playing computer games\n[Kitty] eat rice',
-    "G_height": 768,
-    "G_width": 768,
-    "_comic_type": 'Classic Comic Style',
-    "font_choice": 'Inkfree.ttf',
-    "_char_files": Kitty_pt,
-}
+    with gr.Row():
+        with gr.Group(elem_id="main-image"):
 
-for pil_img in process_generation(**inputs_example):
-    if type(pil_img) == list:
-        print(f"return {len(pil_img)} images, sizes {[img.size for img in pil_img]}")
-    else:
-        print(f"return image size {pil_img.size}")
+            prompts = []
+            colors = []
 
-print("Finish!")
+            with gr.Column(visible=True) as gen_prompt_vis:
+                sd_type = gr.Dropdown(
+                    choices=list(models_dict.keys()),
+                    value="Unstable",
+                    label="sd_type",
+                    info="Select pretrained model",
+                )
+                model_type = gr.Radio(
+                    ["Only Using Textual Description", "Using Ref Images"],
+                    label="model_type",
+                    value="Only Using Textual Description",
+                    info="Control type of the Character",
+                )
+                with gr.Group(visible=False) as control_image_input:
+                    files = gr.Files(
+                        label="Drag (Select) 1 or more photos of your face",
+                        file_types=["image"],
+                    )
+                    uploaded_files = gr.Gallery(
+                        label="Your images",
+                        visible=False,
+                        columns=5,
+                        rows=1,
+                        height=200,
+                    )
+                    with gr.Column(visible=False) as clear_button:
+                        remove_and_reupload = gr.ClearButton(
+                            value="Remove and upload new ones",
+                            components=files,
+                            size="sm",
+                        )
+                general_prompt = gr.Textbox(
+                    value="",
+                    lines=2,
+                    label="(1) Textual Description for Character",
+                    interactive=True,
+                )
+                negative_prompt = gr.Textbox(
+                    value="", label="(2) Negative_prompt", interactive=True
+                )
+                style = gr.Dropdown(
+                    label="Style template",
+                    choices=STYLE_NAMES,
+                    value=DEFAULT_STYLE_NAME,
+                )
+                prompt_array = gr.Textbox(
+                    lines=3,
+                    value="",
+                    label="(3) Comic Description (each line corresponds to a frame).",
+                    interactive=True,
+                )
+                char_path = gr.Textbox(
+                    lines=2,
+                    value="",
+                    visible=False,
+                    label="(Optional) Character files",
+                    interactive=True,
+                )
+                char_btn = gr.Button("Load Character files", visible=False)
+                with gr.Accordion("(4) Tune the hyperparameters", open=True):
+                    font_choice = gr.Dropdown(
+                        label="Select Font",
+                        choices=[
+                            f for f in os.listdir("./fonts") if f.endswith(".ttf")
+                        ],
+                        value="Inkfree.ttf",
+                        info="Select font for the final slide.",
+                        interactive=True,
+                    )
+                    sa32_ = gr.Slider(
+                        label=" (The degree of Paired Attention at 32 x 32 self-attention layers) ",
+                        minimum=0,
+                        maximum=1.0,
+                        value=0.5,
+                        step=0.1,
+                    )
+                    sa64_ = gr.Slider(
+                        label=" (The degree of Paired Attention at 64 x 64 self-attention layers) ",
+                        minimum=0,
+                        maximum=1.0,
+                        value=0.5,
+                        step=0.1,
+                    )
+                    id_length_ = gr.Slider(
+                        label="Number of id images in total images",
+                        minimum=1,
+                        maximum=4,
+                        value=1,
+                        step=1,
+                    )
+                    with gr.Row():
+                        seed_ = gr.Slider(
+                            label="Seed", minimum=-1, maximum=MAX_SEED, value=0, step=1
+                        )
+                        randomize_seed_btn = gr.Button("🎲", size="sm")
+                    num_steps = gr.Slider(
+                        label="Number of sample steps",
+                        minimum=20,
+                        maximum=100,
+                        step=1,
+                        value=35,
+                    )
+                    G_height = gr.Slider(
+                        label="height",
+                        minimum=256,
+                        maximum=1024,
+                        step=32,
+                        value=768,
+                    )
+                    G_width = gr.Slider(
+                        label="width",
+                        minimum=256,
+                        maximum=1024,
+                        step=32,
+                        value=768,
+                    )
+                    comic_type = gr.Radio(
+                        [
+                            "No typesetting (default)",
+                            "Four Pannel",
+                            "Classic Comic Style",
+                        ],
+                        value="Classic Comic Style",
+                        label="Typesetting Style",
+                        info="Select the typesetting style ",
+                    )
+                    guidance_scale = gr.Slider(
+                        label="Guidance scale",
+                        minimum=0.1,
+                        maximum=10.0,
+                        step=0.1,
+                        value=5,
+                    )
+                    style_strength_ratio = gr.Slider(
+                        label="Style strength of Ref Image (%)",
+                        minimum=15,
+                        maximum=50,
+                        step=1,
+                        value=20,
+                        visible=False,
+                    )
+                    Ip_Adapter_Strength = gr.Slider(
+                        label="Ip_Adapter_Strength",
+                        minimum=0,
+                        maximum=1,
+                        step=0.1,
+                        value=0.5,
+                        visible=False,
+                    )
+                final_run_btn = gr.Button("Generate ! 😺")
+
+        with gr.Column():
+            out_image = gr.Gallery(label="Result", columns=2, height="auto")
+            generated_information = gr.Markdown(
+                label="Generation Details", value="", visible=False
+            )
+            gr.Markdown(version)
+    model_type.change(
+        fn=change_visiale_by_model_type,
+        inputs=model_type,
+        outputs=[control_image_input, style_strength_ratio, Ip_Adapter_Strength],
+    )
+    files.upload(
+        fn=swap_to_gallery, inputs=files, outputs=[uploaded_files, clear_button, files]
+    )
+    remove_and_reupload.click(
+        fn=remove_back_to_files, outputs=[uploaded_files, clear_button, files]
+    )
+    char_btn.click(fn=load_character_files, inputs=char_path, outputs=[general_prompt])
+
+    randomize_seed_btn.click(
+        fn=lambda: random.randint(-1, MAX_SEED),
+        inputs=[],
+        outputs=seed_,
+    )
+
+    final_run_btn.click(fn=set_text_unfinished, outputs=generated_information).then(
+        process_generation,
+        inputs=[
+            sd_type,
+            model_type,
+            files,
+            num_steps,
+            style,
+            Ip_Adapter_Strength,
+            style_strength_ratio,
+            guidance_scale,
+            seed_,
+            sa32_,
+            sa64_,
+            id_length_,
+            general_prompt,
+            negative_prompt,
+            prompt_array,
+            G_height,
+            G_width,
+            comic_type,
+            font_choice,
+            char_path,
+        ],
+        outputs=out_image,
+    ).then(fn=set_text_finished, outputs=generated_information)
+
+    gr.Examples(
+        examples=[
+            [
+                0,
+                0.5,
+                0.5,
+                2,
+                "[Bob] A man, wearing a black suit\n[Alice]a woman, wearing a white shirt",
+                "bad anatomy, bad hands, missing fingers, extra fingers, three hands, three legs, bad arms, missing legs, missing arms, poorly drawn face, bad face, fused face, cloned face, three crus, fused feet, fused thigh, extra crus, ugly fingers, horn, cartoon, cg, 3d, unreal, animate, amputation, disconnected limbs",
+                array2string(
+                    [
+                        "[Bob] at home, read new paper #at home, The newspaper says there is a treasure house in the forest.",
+                        "[Bob] on the road, near the forest",
+                        "[Alice] is make a call at home # [Bob] invited [Alice] to join him on an adventure.",
+                        "[NC]A tiger appeared in the forest, at night ",
+                        "[NC] The car on the road, near the forest #They drives to the forest in search of treasure.",
+                        "[Bob] very frightened, open mouth, in the forest, at night",
+                        "[Alice] very frightened, open mouth, in the forest, at night",
+                        "[Bob]  and [Alice] running very fast, in the forest, at night",
+                        "[NC] A house in the forest, at night #Suddenly, They discovers the treasure house!",
+                        "[Bob]  and [Alice]  in the house filled with  treasure, laughing, at night #He is overjoyed inside the house.",
+                    ]
+                ),
+                "Comic book",
+                "Only Using Textual Description",
+                get_image_path_list("./examples/taylor"),
+                768,
+                768,
+            ],
+            [
+                0,
+                0.5,
+                0.5,
+                2,
+                "[Bob] A man img, wearing a black suit\n[Alice]a woman img, wearing a white shirt",
+                "bad anatomy, bad hands, missing fingers, extra fingers, three hands, three legs, bad arms, missing legs, missing arms, poorly drawn face, bad face, fused face, cloned face, three crus, fused feet, fused thigh, extra crus, ugly fingers, horn, cartoon, cg, 3d, unreal, animate, amputation, disconnected limbs",
+                array2string(
+                    [
+                        "[Bob] at home, read new paper #at home, The newspaper says there is a treasure house in the forest.",
+                        "[Bob] on the road, near the forest",
+                        "[Alice] is make a call at home # [Bob] invited [Alice] to join him on an adventure.",
+                        "[NC] The car on the road, near the forest #They drives to the forest in search of treasure.",
+                        "[NC]A tiger appeared in the forest, at night ",
+                        "[Bob] very frightened, open mouth, in the forest, at night",
+                        "[Alice] very frightened, open mouth, in the forest, at night",
+                        "[Bob]  running very fast, in the forest, at night",
+                        "[NC] A house in the forest, at night #Suddenly, They discovers the treasure house!",
+                        "[Bob]  in the house filled with  treasure, laughing, at night #They are overjoyed inside the house.",
+                    ]
+                ),
+                "Comic book",
+                "Using Ref Images",
+                get_image_path_list("./examples/twoperson"),
+                1024,
+                1024,
+            ],
+            [
+                1,
+                0.5,
+                0.5,
+                3,
+                "[Taylor]a woman img, wearing a white T-shirt, blue loose hair",
+                "bad anatomy, bad hands, missing fingers, extra fingers, three hands, three legs, bad arms, missing legs, missing arms, poorly drawn face, bad face, fused face, cloned face, three crus, fused feet, fused thigh, extra crus, ugly fingers, horn, cartoon, cg, 3d, unreal, animate, amputation, disconnected limbs",
+                array2string(
+                    [
+                        "[Taylor]wake up in the bed",
+                        "[Taylor]have breakfast",
+                        "[Taylor]is on the road, go to company",
+                        "[Taylor]work in the company",
+                        "[Taylor]Take a walk next to the company at noon",
+                        "[Taylor]lying in bed at night",
+                    ]
+                ),
+                "Japanese Anime",
+                "Using Ref Images",
+                get_image_path_list("./examples/taylor"),
+                768,
+                768,
+            ],
+            [
+                0,
+                0.5,
+                0.5,
+                3,
+                "[Bob]a man, wearing black jacket",
+                "bad anatomy, bad hands, missing fingers, extra fingers, three hands, three legs, bad arms, missing legs, missing arms, poorly drawn face, bad face, fused face, cloned face, three crus, fused feet, fused thigh, extra crus, ugly fingers, horn, cartoon, cg, 3d, unreal, animate, amputation, disconnected limbs",
+                array2string(
+                    [
+                        "[Bob]wake up in the bed",
+                        "[Bob]have breakfast",
+                        "[Bob]is on the road, go to the company,  close look",
+                        "[Bob]work in the company",
+                        "[Bob]laughing happily",
+                        "[Bob]lying in bed at night",
+                    ]
+                ),
+                "Japanese Anime",
+                "Only Using Textual Description",
+                get_image_path_list("./examples/taylor"),
+                768,
+                768,
+            ],
+            [
+                0,
+                0.3,
+                0.5,
+                3,
+                "[Kitty]a girl, wearing white shirt, black skirt, black tie, yellow hair",
+                "bad anatomy, bad hands, missing fingers, extra fingers, three hands, three legs, bad arms, missing legs, missing arms, poorly drawn face, bad face, fused face, cloned face, three crus, fused feet, fused thigh, extra crus, ugly fingers, horn, cartoon, cg, 3d, unreal, animate, amputation, disconnected limbs",
+                array2string(
+                    [
+                        "[Kitty]at home #at home, began to go to drawing",
+                        "[Kitty]sitting alone on a park bench.",
+                        "[Kitty]reading a book on a park bench.",
+                        "[NC]A squirrel approaches, peeking over the bench. ",
+                        "[Kitty]look around in the park. # She looks around and enjoys the beauty of nature.",
+                        "[NC]leaf falls from the tree, landing on the sketchbook.",
+                        "[Kitty]picks up the leaf, examining its details closely.",
+                        "[NC]The brown squirrel appear.",
+                        "[Kitty]is very happy # She is very happy to see the squirrel again",
+                        "[NC]The brown squirrel takes the cracker and scampers up a tree. # She gives the squirrel cracker",
+                    ]
+                ),
+                "Japanese Anime",
+                "Only Using Textual Description",
+                get_image_path_list("./examples/taylor"),
+                768,
+                768,
+            ],
+        ],
+        inputs=[
+            seed_,
+            sa32_,
+            sa64_,
+            id_length_,
+            general_prompt,
+            negative_prompt,
+            prompt_array,
+            style,
+            model_type,
+            files,
+            G_height,
+            G_width,
+        ],
+        # outputs=[post_sketch, binary_matrixes, *color_row, *colors, *prompts, gen_prompt_vis, general_prompt, seed_],
+        # run_on_click=True,
+        label="😺 Examples 😺",
+    )
+    gr.Markdown(article)
 
 
-# source /gpfs/public/vl/wangjiazhi/.bashrc; conda activate storydiffusion
-# cd /gpfs/public/vl/wangjiazhi/00_projs/StoryDiffusion
-# python gradio_app_sdxl_specific_id_low_vram.py
+demo.launch(server_name="0.0.0.0", share=True)

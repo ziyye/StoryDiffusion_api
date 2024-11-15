@@ -472,7 +472,6 @@ def load_single_character_weights(unet, filepath):
 
 
 def save_results(unet, img_list):
-
     timestamp = datetime.datetime.now().strftime("%Y%m%d-%H%M%S")
     folder_name = f"results/{timestamp}"
     weight_folder_name = f"{folder_name}/weights"
@@ -491,7 +490,9 @@ def save_results(unet, img_list):
     # save the characters features offline
     for char in character_dict:  # {'[Kitty]': 'a girl, wearing white shirt, black skirt, black tie, yellow hair'}
         description = character_dict[char]
-        save_single_character_weights(unet,char,description,os.path.join(weight_folder_name, f'{char}.pt'))
+        save_single_character_weights(unet, char, description, os.path.join(weight_folder_name, f'{char}.pt'))
+
+    return os.path.abspath(folder_name)
 
 
 #################################################
@@ -642,7 +643,7 @@ def process_generation(
     font_choice,
     _char_files,
 ):  # Corrected font_choice usage
-    if len(general_prompt.splitlines()) >= 3:  # limit of characters number
+    if len(general_prompt.splitlines()) >= 10:  # limit of characters number
         raise Exception(
             "Support for more than three characters is temporarily unavailable due to VRAM limitations, but this issue will be resolved soon."
         )
@@ -887,10 +888,11 @@ def process_generation(
         total_results = (
             get_comic(total_results, _comic_type, captions=captions, font=font)
             + total_results
-        )
-    save_results(pipe.unet, total_results)
+        )  # a list of 'PIL.Image.Image'
+    save_root = save_results(pipe.unet, total_results)
 
-    yield total_results
+    # yield total_results
+    yield save_root
 
 
 def array2string(arr):
@@ -905,67 +907,135 @@ def array2string(arr):
 
 
 #################################################
-#################################################
 
-Kitty_pt = '/gpfs/public/vl/wangjiazhi/00_projs/StoryDiffusion/results/20241031-032806/weights/[Kitty].pt'
+from fastapi import FastAPI, Response
+from fastapi.responses import JSONResponse
+import threading
+import socket
+import os
+import datetime
+import sys
+import time
 
-inputs_example = {
-    "_sd_type": 'Unstable',
-    "_model_type": 'Only Using Textual Description',
-    "_upload_images": ['/gpfs/public/vl/wangjiazhi/00_projs/StoryDiffusion/1-1.png'],
-    "_num_steps": 20,
-    "style_name": 'Japanese Anime',
-    "_Ip_Adapter_Strength": 0.5,
-    "_style_strength_ratio": 20,
-    "guidance_scale": 5,
-    "seed_": 1,
-    "sa32_": 0.3,
-    "sa64_": 0.5,
-    "id_length_": 3,
-    "general_prompt": '[Kitty]a girl, wearing white shirt, black skirt, black tie, yellow hair',
-    "negative_prompt": 'bad anatomy, bad hands, missing fingers, extra fingers, three hands, three legs, bad arms, missing legs, missing arms, poorly drawn face, bad face, fused face, cloned face, three crus, fused feet, fused thigh, extra crus, ugly fingers, horn, cartoon, cg, 3d, unreal, animate, amputation, disconnected limbs',
-    # "prompt_array": '[Kitty]at home #at home, began to go to drawing\n[Kitty]sitting alone on a park bench.\n[Kitty]reading a book on a park bench.\n[NC]A squirrel approaches, peeking over the bench. \n[Kitty]look around in the park. # She looks around and enjoys the beauty of nature.\n[NC]leaf falls from the tree, landing on the sketchbook.\n[Kitty]picks up the leaf, examining its details closely.\n[NC]The brown squirrel appear.\n[Kitty]is very happy # She is very happy to see the squirrel again\n[NC]The brown squirrel takes the cracker and scampers up a tree. # She gives the squirrel cracker',
-    "prompt_array": '[Kitty]at home #at home, began to go to drawing\n[Kitty]sitting alone on a park bench.\n[Kitty]reading a book on a park bench.\n[NC]A squirrel approaches, peeking over the bench.',
-    "G_height": 768,
-    "G_width": 768,
-    "_comic_type": 'Classic Comic Style',
-    "font_choice": 'Inkfree.ttf',
-    "_char_files": '',
-}
 
-inputs_example = {
-    "_sd_type": 'Unstable',
-    "_model_type": 'Only Using Textual Description',
-    "_upload_images": ['/gpfs/public/vl/wangjiazhi/00_projs/StoryDiffusion/1-1.png'],
-    "_num_steps": 20,
-    "style_name": 'Japanese Anime',
-    "_Ip_Adapter_Strength": 0.5,
-    "_style_strength_ratio": 20,
-    "guidance_scale": 5,
-    "seed_": 1,
-    "sa32_": 0.3,
-    "sa64_": 0.5,
-    "id_length_": 3,
-    "general_prompt": '[Kitty]a girl',
-    "negative_prompt": 'bad anatomy, bad hands, missing fingers, extra fingers, three hands, three legs, bad arms, missing legs, missing arms, poorly drawn face, bad face, fused face, cloned face, three crus, fused feet, fused thigh, extra crus, ugly fingers, horn, cartoon, cg, 3d, unreal, animate, amputation, disconnected limbs',
-    # "prompt_array": '[Kitty]at home #at home, began to go to drawing\n[Kitty]sitting alone on a park bench.\n[Kitty]reading a book on a park bench.\n[NC]A squirrel approaches, peeking over the bench. \n[Kitty]look around in the park. # She looks around and enjoys the beauty of nature.\n[NC]leaf falls from the tree, landing on the sketchbook.\n[Kitty]picks up the leaf, examining its details closely.\n[NC]The brown squirrel appear.\n[Kitty]is very happy # She is very happy to see the squirrel again\n[NC]The brown squirrel takes the cracker and scampers up a tree. # She gives the squirrel cracker',
-    "prompt_array": '[Kitty]running on a beach\n[Kitty]playing computer games\n[Kitty] eat rice',
-    "G_height": 768,
-    "G_width": 768,
-    "_comic_type": 'Classic Comic Style',
-    "font_choice": 'Inkfree.ttf',
-    "_char_files": Kitty_pt,
-}
+import requests
+from io import BytesIO
 
-for pil_img in process_generation(**inputs_example):
-    if type(pil_img) == list:
-        print(f"return {len(pil_img)} images, sizes {[img.size for img in pil_img]}")
-    else:
-        print(f"return image size {pil_img.size}")
+from pydantic import BaseModel, ConfigDict
 
-print("Finish!")
+class StoryDiffusionInputData(BaseModel):
+    model_config = ConfigDict(underscore_attrs_are_private=False)
+
+    sd_type: str = 'Unstable'
+    model_type: str = 'original'
+    upload_images: list[str]
+    num_steps: int = 20
+    style_name: str = 'Japanese Anime'
+    Ip_Adapter_Strength: float = 0.5
+    style_strength_ratio: float = 20
+    guidance_scale: float = 5
+    seed_: int = 1
+    sa32_: float = 0.3
+    sa64_: float = 0.5
+    id_length_: int = 3
+    general_prompt: str = '[Kitty]a girl',
+    negative_prompt: str = 'bad anatomy, bad hands, missing fingers, extra fingers, three hands, three legs, bad arms, missing legs, missing arms, poorly drawn face, bad face, fused face, cloned face, three crus, fused feet, fused thigh, extra crus, ugly fingers, horn, cartoon, cg, 3d, unreal, animate, amputation, disconnected limbs'
+    prompt_array: str = '[Kitty]running on a beach\n[Kitty]playing computer games\n[Kitty] eat rice'
+    G_height: int = 768
+    G_width: int = 768
+    comic_type: str = 'Classic Comic Style'
+    font_choice: str = 'Inkfree.ttf'
+    char_files: str
+    
+    response_format: str = "base64"  # "b64_json", "tosUrl", "pickle"
+
+
+def do_infer_1(generate_cfg):
+    result_pil_imgs = []
+    for pil_img in process_generation(**generate_cfg):
+        if type(pil_img) == list:
+            print(f"return {len(pil_img)} images, sizes {[img.size for img in pil_img]}")
+            result_pil_imgs += pil_img
+        else:
+            print(f"return image size {pil_img.size}")
+            result_pil_imgs.append(pil_img)
+    return result_pil_imgs
+
+
+def do_infer(generate_cfg):
+    for x in process_generation(**generate_cfg):
+        if type(x) is str and os.path.isdir(x):
+            # the last value yield is save_root path of the images and weights
+            return x
+
+
+app = FastAPI()
+
+print("API is starting up")
+lock = threading.Lock()
+
+
+@app.post("/story_storydiffusion")
+def story_storydiffusion(data: StoryDiffusionInputData):
+    try:
+        print("Entered story_storydiffusion function")
+        print(f"Received request with data: {str(data)}")
+
+        with lock:
+            print("Acquired lock, starting inference")
+
+            generate_cfg = data.model_dump(include=data.__dict__.keys())
+            
+            generate_cfg = {
+                "_sd_type": data.sd_type,
+                "_model_type": data.model_type,
+                "_upload_images": data.upload_images,
+                "_num_steps": data.num_steps,
+                "style_name": data.style_name,
+                "_Ip_Adapter_Strength": data.Ip_Adapter_Strength,
+                "_style_strength_ratio": data.style_strength_ratio,
+                "guidance_scale": data.guidance_scale,
+                "seed_": data.seed_,
+                "sa32_": data.sa32_,
+                "sa64_": data.sa64_,
+                "id_length_": data.id_length_,
+                "general_prompt": data.general_prompt,
+                "negative_prompt": data.negative_prompt,
+                "prompt_array": data.prompt_array,
+                "G_height": data.G_height,
+                "G_width": data.G_width,
+                "_comic_type": data.comic_type,
+                "font_choice": data.font_choice,
+                "_char_files": data.char_files
+            }
+            
+            result = do_infer(generate_cfg)
+            print("Inference complete")
+
+        if data.response_format == "save_root":
+            print(f"Save root of the result images and character weights is {result}")
+            return JSONResponse(content={"success": True, "data": result})
+        else:
+            return JSONResponse(content={"success": False, "data": "Unsupported response format"})
+        
+    except Exception as e:
+        print(f"Error occurred: {e}")
+        return JSONResponse(content={"success": False, "data": str(e)})
+
+print("API is ready to accept requests")
+
+
+import uvicorn
+
+if __name__ == "__main__":
+    # config = uvicorn.Config("api_flux:app", host="0.0.0.0", port=8977, access_log=True, workers=1)
+    # server = uvicorn.Server(config)
+    # server.run()
+    uvicorn.run(app, host="0.0.0.0", port=8977)
 
 
 # source /gpfs/public/vl/wangjiazhi/.bashrc; conda activate storydiffusion
 # cd /gpfs/public/vl/wangjiazhi/00_projs/StoryDiffusion
-# python gradio_app_sdxl_specific_id_low_vram.py
+# python gradio_app_sdxl_specific_id_low_vram_api.py
+
+# uvicorn gradio_app_sdxl_specific_id_low_vram_api:app --host 0.0.0.0 --port 8977

@@ -1,0 +1,20 @@
+{
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "name": "storyDiffusion",
+            "type": "python",
+            "request": "launch",
+            // "program": "app.py",
+            // "program": "gradio_app_sdxl_specific_id_low_vram__ori.py",
+            "program": "gradio_app_sdxl_specific_id_low_vram.py",
+            "env": {
+                "CUDA_VISIBLE_DEVICES": "1", // Set the desired GPU devices here
+                "HF_HOME": "/gpfs/public/vl/linhualing/.cache/huggingface"
+            },
+            "console": "integratedTerminal",
+            "justMyCode": true,
+            "cwd": "/gpfs/public/vl/wangjiazhi/00_projs/StoryDiffusion"
+        }
+    ]
+}

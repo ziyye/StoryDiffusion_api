@@ -339,6 +339,7 @@ class AttnProcessor(nn.Module):
         return hidden_states
 
 
+# the official is diffusers.models.attention_processor.AttnProcessor2_0, refer to /gpfs/public/vl/linhualing/miniconda3/envs/storydiffusion/lib/python3.10/site-packages/diffusers/models/attention_processor.py
 class AttnProcessor2_0(torch.nn.Module):
     r"""
     Processor for implementing scaled dot-product attention (enabled by default if you're using PyTorch 2.0).
@@ -481,7 +482,7 @@ def get_cur_id_list(real_prompt,character_dict,character_index_dict):
 def process_original_prompt(character_dict,prompts,id_length):
     replace_prompts = []
     character_index_dict = {}
-    invert_character_index_dict = {}
+    invert_character_index_dict = {}  # value: list of characters that appear in prompts[key]
     for ind,prompt in enumerate(prompts):
                 for key in character_dict.keys():
                     if key in prompt:
@@ -505,7 +506,7 @@ def process_original_prompt(character_dict,prompts,id_length):
         index_list = character_index_dict[character_key]
         index_list = [index for index in index_list if len(invert_character_index_dict[index]) == 1]
         if len(index_list) < id_length:
-            raise gr.Error(f"{character_key} not have enough prompt description, need no less than {id_length}, but you give {len(index_list)}")
+            raise gr.Error(f"{character_key} not have enough prompt description, need no less than {id_length}, but you give {len(index_list)}")  # In each prompt, no more than 1 character
         ref_index_dict[character_key] = index_list[:id_length]
         ref_totals = ref_totals + index_list[:id_length]
     return character_index_dict,invert_character_index_dict,replace_prompts,ref_index_dict,ref_totals
